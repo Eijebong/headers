@@ -1,7 +1,6 @@
 use std::iter::FromIterator;
 
 use {HeaderName, HeaderValue};
-use util::FlatCsv;
 
 /// `Access-Control-Allow-Headers` header, part of
 /// [CORS](http://www.w3.org/TR/cors/#access-control-allow-headers-response-header)
@@ -31,18 +30,13 @@ use util::FlatCsv;
 ///     .into_iter()
 ///     .collect::<AccessControlAllowHeaders>();
 /// ```
-#[derive(Clone, Debug, PartialEq, Header)]
-pub struct AccessControlAllowHeaders(FlatCsv);
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccessControlAllowHeaders(Vec<HeaderName>);
 
 impl AccessControlAllowHeaders {
     /// Returns an iterator over `HeaderName`s contained within.
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = HeaderName> + 'a {
-        self
-            .0
-            .iter()
-            .filter_map(|s| {
-                s.parse().ok()
-            })
+        self.0.iter().cloned()
     }
 }
 
@@ -53,12 +47,39 @@ impl FromIterator<HeaderName> for AccessControlAllowHeaders {
     {
         let flat = iter
             .into_iter()
-            .map(HeaderValue::from)
             .collect();
         AccessControlAllowHeaders(flat)
     }
 }
 
+impl ::Header for AccessControlAllowHeaders {
+    const NAME: &'static ::HeaderName = &::http::header::ACCESS_CONTROL_ALLOW_HEADERS;
+
+    fn decode(values: &mut ::Values) -> Option<Self> {
+        let mut ok = true;
+        let vec = values
+            .filter_map(|v| {
+                let name = HeaderName::from_bytes(v.as_bytes()).ok();
+                if !name.is_some() {
+                    ok = false;
+                }
+                name
+            })
+            .collect::<Vec<_>>();
+
+        if !vec.is_empty() && ok {
+            Some(AccessControlAllowHeaders(vec))
+        } else {
+            None
+        }
+    }
+
+    fn encode(&self, values: &mut ::ToValues) {
+        for val in &self.0 {
+            values.append(HeaderValue::from_name(val.clone()));
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,6 +106,15 @@ mod tests {
 
         let headers = test_encode(allow);
         assert_eq!(headers["access-control-allow-headers"], "cache-control, if-range");
+    }
+
+    #[test]
+    fn test_with_invalid() {
+        let allow_headers = test_decode::<AccessControlAllowHeaders>(
+            &["foo foo, bar"]
+        );
+
+        assert!(allow_headers.is_none());
     }
 }
 
