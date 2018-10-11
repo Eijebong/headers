@@ -57,15 +57,23 @@ impl ::Header for AccessControlAllowHeaders {
 
     fn decode(values: &mut ::Values) -> Option<Self> {
         let mut ok = true;
-        let vec = values
-            .filter_map(|v| {
-                let name = HeaderName::from_bytes(v.as_bytes()).ok();
-                if !name.is_some() {
-                    ok = false;
-                }
-                name
-            })
-            .collect::<Vec<_>>();
+        let vec = values.flat_map(|value| {
+            value.to_str().into_iter()
+                .flat_map(|string| {
+                    string
+                        .split(',')
+                        .filter_map(|x| match x.trim() {
+                            "" => None,
+                            y => {
+                                let name = y.parse();
+                                if name.is_err() {
+                                    ok = false;
+                                }
+                                name.ok()
+                            }
+                        })
+                })
+            }).collect::<Vec<HeaderName>>();
 
         if !vec.is_empty() && ok {
             Some(AccessControlAllowHeaders(vec))
